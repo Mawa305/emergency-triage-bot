@@ -1,0 +1,766 @@
+{
+  "name": "Emergency Triage Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "emergency-triage",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        144
+      ],
+      "id": "0a1490f7-2fef-4d47-9bef-9eea1cd83773",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst name = (body.name || '').toString().trim();\nconst phone = (body.phone || '').toString().replace(/[^\\d+]/g, '');\nconst message = (body.message || '').toString().trim();\n\nconst errors = [];\nif (!name) errors.push('missing_name');\nif (phone.length < 10) errors.push('invalid_phone');\nif (message.length < 5) errors.push('message_too_short');\n\nreturn [{\n  json: {\n    name,\n    phone,\n    message,\n    is_valid: errors.length === 0,\n    errors: errors.join(',')\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        144
+      ],
+      "id": "fd928582-6e53-4bea-b2a5-7fa048817757",
+      "name": "Validate Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "efff8b0e-40e1-4643-ae35-8e4a3296879e",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        144
+      ],
+      "id": "671aa5dd-3fb0-4dff-8ed6-abb38ff53578",
+      "name": "Is Input Valid?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst text = raw.message?.content || raw.output?.[0]?.content?.[0]?.text || raw.text || '';\nconst base = $('Validate Input').first().json;\n\nlet category = 'urgent';\nlet reason = 'AI output invalid, defaulted to urgent';\n\ntry {\n  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());\n  if (['emergency', 'urgent', 'routine'].includes(parsed.category)) {\n    category = parsed.category;\n    reason = parsed.reason || '';\n  }\n} catch (e) {}\n\n// Safety net: safety keywords always mean emergency\nconst safetyWords = ['gas', 'carbon monoxide', 'smoke', 'fire', 'burning', 'sparks', 'flood'];\nif (safetyWords.some(w => base.message.toLowerCase().includes(w))) {\n  category = 'emergency';\n  reason = 'Safety keyword detected: ' + reason;\n}\n\nreturn [{ json: { ...base, category, reason } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        144
+      ],
+      "id": "86a26f03-59b6-43b7-a5aa-dc97ce15708b",
+      "name": "Validate AI Output"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "emergency",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "eb840726-8b1d-40f2-8773-8b158a62da14"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Output 0"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1d9103da-4d2e-4f12-aac6-7c41ad8823c0",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "urgent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Output 1"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7e9be9a4-f9e6-42bf-a28b-b1173586edab",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "routine",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Output 2"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1920,
+        128
+      ],
+      "id": "2499e96d-0d1d-4d92-a653-ce0cd860807d",
+      "name": "Route by Category"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🚨 EMERGENCY REQUEST \nName: {{ $json.name }}\nPhone: {{ $json.phone }}\nMessage: {{ $json.message }}\nReason: {{ $json.reason }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2144,
+        -144
+      ],
+      "id": "feeb293a-eac4-4e9f-9d7d-1d91c617b28c",
+      "name": "Alert Technician Emergency",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ URGENT REQUEST \nName: {{ $json.name }} \nPhone: {{ $json.phone }} \nMessage: {{ $json.message }}\nReason: {{ $json.reason }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2144,
+        144
+      ],
+      "id": "15bea015-c8ae-449c-910e-194f08d01d3c",
+      "name": "Alert Technician Urgent",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "triage_requests",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('Webhook').item.json.body.name }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $('Webhook').item.json.body.phone }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $('Webhook').item.json.body.message }}"
+            },
+            {
+              "fieldId": "category",
+              "fieldValue": "={{ $('Validate AI Output').item.json.category }}"
+            },
+            {
+              "fieldId": "reason",
+              "fieldValue": "={{ $('Validate AI Output').item.json.reason }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $('Validate AI Output').item.json.category === 'routine' ? 'logged' : 'alert_sent' }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2368,
+        144
+      ],
+      "id": "b3f6b452-b8eb-4eaf-8976-93a3471bc3d3",
+      "name": "Log Triage Request",
+      "retryOnFail": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "triage_requests",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('Webhook').item.json.body.name }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $('Webhook').item.json.body.phone }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $('Webhook').item.json.body.message }}"
+            },
+            {
+              "fieldId": "category",
+              "fieldValue": "={{ $('Validate AI Output').item.json.category }}"
+            },
+            {
+              "fieldId": "reason",
+              "fieldValue": "={{ $('Validate AI Output').item.json.reason }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $('Validate AI Output').item.json.category === 'routine' ? 'logged' : 'alert_sent' }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2368,
+        -240
+      ],
+      "id": "30357de1-dc30-4bee-8719-54e91beee478",
+      "name": "Log Triage Request1",
+      "retryOnFail": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "triage_requests",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('Webhook').item.json.body.name }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $('Webhook').item.json.body.phone }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $('Webhook').item.json.body.message }}"
+            },
+            {
+              "fieldId": "category",
+              "fieldValue": "={{ $('Validate AI Output').item.json.category }}"
+            },
+            {
+              "fieldId": "reason",
+              "fieldValue": "={{ $('Validate AI Output').item.json.reason }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $('Validate AI Output').item.json.category === 'routine' ? 'logged' : 'alert_sent' }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2144,
+        336
+      ],
+      "id": "b34b1f68-4e26-4655-b1b8-3e376bc201c0",
+      "name": "Log Triage Request2",
+      "retryOnFail": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "triage_requests",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('Webhook').item.json.body.name }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $('Webhook').item.json.body.phone }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $('Webhook').item.json.body.message }}"
+            },
+            {
+              "fieldId": "category",
+              "fieldValue": "none"
+            },
+            {
+              "fieldId": "reason",
+              "fieldValue": "={{ $json.errors }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "invalid"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        48
+      ],
+      "id": "0f9dd65c-0150-4ebb-8a9a-65215f6982c1",
+      "name": "Log Invalid Request",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=You are a triage assistant for an HVAC company. Classify the customer message into exactly one category.\n\nemergency (life safety, always takes priority): gas smell, gas leak, carbon monoxide, smoke, fire, sparks, burning smell, flooding, no heat in freezing weather.\nurgent: system not working, needs same-day or next-day service, but no safety risk.\nroutine: maintenance, quotes, general questions.\n\nRule: if there is ANY safety risk, choose emergency, even if the customer also mentions a broken system.\n\nReply ONLY with JSON: {\"category\":\"emergency|urgent|routine\",\"reason\":\"short reason\"}\n\nCustomer message: {{ $json.message }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        144
+      ],
+      "id": "a6bdd212-b83e-46eb-93ec-bdfd6c59fb62",
+      "name": "Classify Urgency",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().filter(i => i.json.id);\nconst base = $('Validate Input').first().json;\nreturn [{ json: { ...base, is_duplicate: rows.length > 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        240
+      ],
+      "id": "c1b2bd5f-572b-4c53-9c41-32b0a2c65deb",
+      "name": "Mark Duplicate"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "triage_requests",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $json.phone }}"
+            },
+            {
+              "keyName": "created_at",
+              "condition": "gte",
+              "keyValue": "={{ $now.minus({minutes: 5}).toISO() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        240
+      ],
+      "id": "66a4ab38-47a7-4188-860f-4263163ef427",
+      "name": "Check Duplicate",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "09afea28-cf41-4388-a248-54c57cbf387b",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        240
+      ],
+      "id": "ef4360af-e76a-41b4-940b-28317b38d4b3",
+      "name": "Is New Request?"
+    },
+    {
+      "parameters": {
+        "tableId": "triage_requests",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('Webhook').item.json.body.name }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $('Webhook').item.json.body.phone }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $('Webhook').item.json.body.message }}"
+            },
+            {
+              "fieldId": "category",
+              "fieldValue": "none"
+            },
+            {
+              "fieldId": "reason",
+              "fieldValue": "duplicate_within_5_min"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "duplicate_skipped"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1408,
+        336
+      ],
+      "id": "91f0d2fc-23b4-4db5-86b8-efa7a5590b77",
+      "name": "Log Duplicate",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "🚨 EMERGENCY (Telegram failed)",
+        "emailType": "text",
+        "message": "=🚨 EMERGENCY REQUEST \nName: {{ $json.name }} \nPhone: {{ $json.phone }}\nMessage: {{ $json.message }}\nReason: {{ $json.reason }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2368,
+        -48
+      ],
+      "id": "f38270a0-95cd-4941-b753-e6dab977eca0",
+      "name": "Backup Emergency Email",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Is Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Invalid Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate AI Output": {
+      "main": [
+        [
+          {
+            "node": "Route by Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Category": {
+      "main": [
+        [
+          {
+            "node": "Alert Technician Emergency",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Technician Urgent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Triage Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Technician Urgent": {
+      "main": [
+        [
+          {
+            "node": "Log Triage Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Technician Emergency": {
+      "main": [
+        [
+          {
+            "node": "Log Triage Request1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Backup Emergency Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Urgency": {
+      "main": [
+        [
+          {
+            "node": "Validate AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Is New Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Mark Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Request?": {
+      "main": [
+        [
+          {
+            "node": "Classify Urgency",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "id": "",
+  "tags": []
+}
